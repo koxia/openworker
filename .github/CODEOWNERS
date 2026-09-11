@@ -1,0 +1,4 @@
+# CODEOWNERS — all changes require @koxia's approval
+# GitHub docs: https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners
+
+* @koxia
