@@ -5,6 +5,9 @@ import {
   connectManaged,
   connectMcpBacked,
   getConnectors,
+  getGmailOAuthStatus,
+  configureGmailOAuth,
+  signInGmailOAuth,
   type CloudStatus,
   type Connector,
 } from "../../api";
@@ -47,6 +50,9 @@ export function AddConnectionModal({
     c.name === "attio" ||
     (mcpBacked && c.fields.length > 0);
   const [pane, setPane] = useState<"one" | "manual">("one");
+
+  // Gmail uses local OAuth flow (no cloud broker)
+  const isGmail = c.name === "gmail";
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
@@ -116,6 +122,9 @@ export function AddConnectionModal({
         ) : mcpBacked ? (
           /* MCP-backed with no manual fields (monday): one-click IS the flow. */
           <McpOneClick c={c} onConnected={() => { onChanged(); onClose(); }} />
+        ) : isGmail ? (
+          /* Gmail uses local OAuth flow (no cloud broker) */
+          <GmailLocalOAuth c={c} onConnected={() => { onChanged(); onClose(); }} />
         ) : (
           <div className="px-1.5 pb-2">
             {/* Existing combined setup (managed button + manual fields) for everything else. */}
@@ -365,6 +374,125 @@ function SlackManual({ onConnected }: { onConnected: () => void }) {
       {error && <div className="text-[13px] text-danger">{error}</div>}
       <p className="text-[12px] text-warnInk text-center">
         {tt("modal.slack_manual_pause_note")}
+      </p>
+    </div>
+  );
+}
+
+// Gmail local OAuth flow (no cloud broker needed)
+function GmailLocalOAuth({ c: _c, onConnected }: { c: Connector; onConnected: () => void }) {
+  const { t: tt } = useTranslation();
+  const [status, setStatus] = useState<{ client_configured: boolean } | null>(null);
+  const [showConfig, setShowConfig] = useState(false);
+  const [clientId, setClientId] = useState("");
+  const [clientSecret, setClientSecret] = useState("");
+  const [waiting, setWaiting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    getGmailOAuthStatus().then(setStatus).catch(() => {});
+  }, []);
+
+  const handleConfigure = async () => {
+    if (!clientId.trim() || !clientSecret.trim()) {
+      setError(tt("gmail.oauth_config_required"));
+      return;
+    }
+    setError(null);
+    const res = await configureGmailOAuth(clientId.trim(), clientSecret.trim());
+    if (res.ok) {
+      setStatus({ client_configured: true });
+      setShowConfig(false);
+      setClientId("");
+      setClientSecret("");
+    } else {
+      setError(res.error || tt("gmail.oauth_config_failed"));
+    }
+  };
+
+  const handleSignIn = async () => {
+    setError(null);
+    setWaiting(true);
+    const res = await signInGmailOAuth();
+    setWaiting(false);
+    if (res.ok) {
+      onConnected();
+    } else {
+      setError(res.error || tt("gmail.oauth_signin_failed"));
+    }
+  };
+
+  const clientConfigured = status?.client_configured ?? false;
+
+  if (!clientConfigured && !showConfig) {
+    return (
+      <div className="px-5 py-4 space-y-3">
+        <p className="text-[13px] text-muted">
+          {tt("gmail.local_oauth_setup_blurb")}
+        </p>
+        <button
+          className={PILL_ACCENT + " w-full !py-2"}
+          onClick={() => setShowConfig(true)}
+        >
+          {tt("gmail.configure_google_oauth")}
+        </button>
+      </div>
+    );
+  }
+
+  if (showConfig) {
+    return (
+      <div className="px-5 py-4 space-y-3">
+        <p className="text-[13px] text-muted">
+          {tt("gmail.oauth_instructions")}
+        </p>
+        <ol className="text-[12px] text-muted list-decimal list-inside space-y-1">
+          <li>{tt("gmail.oauth_step_1")}</li>
+          <li>{tt("gmail.oauth_step_2")}</li>
+          <li>{tt("gmail.oauth_step_3")}</li>
+          <li>{tt("gmail.oauth_step_4")}</li>
+        </ol>
+        <input
+          className={INPUT}
+          type="text"
+          placeholder={tt("gmail.client_id")}
+          value={clientId}
+          onChange={(e) => setClientId(e.target.value)}
+        />
+        <input
+          className={INPUT}
+          type="password"
+          placeholder={tt("gmail.client_secret")}
+          value={clientSecret}
+          onChange={(e) => setClientSecret(e.target.value)}
+        />
+        <button
+          className={PILL_ACCENT + " w-full !py-2"}
+          onClick={handleConfigure}
+        >
+          {tt("gmail.save_config")}
+        </button>
+        {error && <div className="text-[13px] text-danger">{error}</div>}
+      </div>
+    );
+  }
+
+  return (
+    <div className="px-5 py-4 space-y-3">
+      <p className="text-[13px] text-muted">
+        {tt("modal.gmail_blurb")}
+      </p>
+      <button
+        className={PILL_ACCENT + " w-full !py-2"}
+        data-testid="modal-gmail-signin"
+        onClick={handleSignIn}
+        disabled={waiting}
+      >
+        {waiting ? tt("cloud.check_browser") : tt("modal.connect_gmail")}
+      </button>
+      {error && <div className="text-[13px] text-danger">{error}</div>}
+      <p className="text-[12px] text-faint text-center flex items-center justify-center gap-1.5">
+        <span className={TAG_ACCENT}>{tt("modal.recommended")}</span> {tt("modal.tokens_stay_local")}
       </p>
     </div>
   );

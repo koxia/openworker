@@ -107,6 +107,153 @@ MATRIX: dict[str, ModelEntry] = {
     "openai-codex:gpt-5.1-codex-mini": ModelEntry(
         "GPT-5.1 Codex Mini · ChatGPT plan", _AGENTIC, 400_000
     ),
+    # GitHub Copilot catalog (the `github-copilot` OAuth provider). Models available
+    # through a Copilot subscription via GitHub's device flow OAuth.
+    # Source: https://docs.github.com/en/copilot/reference/ai-models/supported-models
+    # Only GA (non-retired) models are listed. Vision per the vendor's model docs;
+    # PDFs unverified over this backend → local fallback via pdf_support.py.
+    # -- OpenAI models --
+    "github-copilot:gpt-5.6-sol": ModelEntry(
+        "GPT-5.6 Sol · GitHub Copilot",
+        ModelCapabilities(
+            tools=True, vision=True, parallel_tool_calls=True, streaming=True
+        ),
+        400_000,
+    ),
+    "github-copilot:gpt-5.6-terra": ModelEntry(
+        "GPT-5.6 Terra · GitHub Copilot",
+        ModelCapabilities(
+            tools=True, vision=True, parallel_tool_calls=True, streaming=True
+        ),
+        400_000,
+    ),
+    "github-copilot:gpt-5.6-luna": ModelEntry(
+        "GPT-5.6 Luna · GitHub Copilot",
+        ModelCapabilities(
+            tools=True, vision=True, parallel_tool_calls=True, streaming=True
+        ),
+        400_000,
+    ),
+    "github-copilot:gpt-5.5": ModelEntry(
+        "GPT-5.5 · GitHub Copilot",
+        ModelCapabilities(
+            tools=True, vision=True, parallel_tool_calls=True, streaming=True
+        ),
+        400_000,
+    ),
+    "github-copilot:gpt-5.4": ModelEntry(
+        "GPT-5.4 · GitHub Copilot",
+        ModelCapabilities(
+            tools=True, vision=True, parallel_tool_calls=True, streaming=True
+        ),
+        400_000,
+    ),
+    "github-copilot:gpt-5.4-mini": ModelEntry(
+        "GPT-5.4 mini · GitHub Copilot",
+        _AGENTIC,
+        400_000,
+    ),
+    "github-copilot:gpt-5.3-codex": ModelEntry(
+        "GPT-5.3 Codex · GitHub Copilot",
+        ModelCapabilities(
+            tools=True, vision=True, parallel_tool_calls=True, streaming=True
+        ),
+        400_000,
+    ),
+    "github-copilot:gpt-5-mini": ModelEntry(
+        "GPT-5 mini · GitHub Copilot",
+        _AGENTIC,
+        400_000,
+    ),
+    "github-copilot:gpt-6-astra": ModelEntry(
+        "GPT-6 Astra · GitHub Copilot",
+        ModelCapabilities(
+            tools=True, vision=True, parallel_tool_calls=True, streaming=True
+        ),
+        400_000,
+    ),
+    # -- Anthropic models --
+    "github-copilot:claude-sonnet-5": ModelEntry(
+        "Claude Sonnet 5 · GitHub Copilot",
+        _AGENTIC_VISION,
+        200_000,
+    ),
+    "github-copilot:claude-sonnet-4.6": ModelEntry(
+        "Claude Sonnet 4.6 · GitHub Copilot",
+        _AGENTIC_VISION,
+        200_000,
+    ),
+    "github-copilot:claude-opus-5": ModelEntry(
+        "Claude Opus 5 · GitHub Copilot",
+        _AGENTIC_VISION,
+        200_000,
+    ),
+    "github-copilot:claude-opus-4.8": ModelEntry(
+        "Claude Opus 4.8 · GitHub Copilot",
+        _AGENTIC_VISION,
+        200_000,
+    ),
+    "github-copilot:claude-haiku-4.5": ModelEntry(
+        "Claude Haiku 4.5 · GitHub Copilot",
+        _AGENTIC_VISION,
+        200_000,
+    ),
+    "github-copilot:claude-fable-5": ModelEntry(
+        "Claude Fable 5 · GitHub Copilot",
+        _AGENTIC_VISION,
+        200_000,
+    ),
+    # -- Google models --
+    "github-copilot:gemini-3.8-flash": ModelEntry(
+        "Gemini 3.8 Flash · GitHub Copilot",
+        _AGENTIC_VISION,
+        1_048_576,
+    ),
+    "github-copilot:gemini-3.7-flash": ModelEntry(
+        "Gemini 3.7 Flash · GitHub Copilot",
+        _AGENTIC_VISION,
+        1_048_576,
+    ),
+    "github-copilot:gemini-3.6-flash": ModelEntry(
+        "Gemini 3.6 Flash · GitHub Copilot",
+        _AGENTIC_VISION,
+        1_048_576,
+    ),
+    "github-copilot:gemini-3.5-flash": ModelEntry(
+        "Gemini 3.5 Flash · GitHub Copilot",
+        _AGENTIC_VISION,
+        1_048_576,
+    ),
+    # -- xAI models --
+    "github-copilot:grok-4.6": ModelEntry(
+        "Grok 4.6 · GitHub Copilot",
+        _AGENTIC,
+        256_000,
+    ),
+    "github-copilot:grok-4.5": ModelEntry(
+        "Grok 4.5 · GitHub Copilot",
+        _AGENTIC,
+        256_000,
+    ),
+    # -- Moonshot AI models --
+    "github-copilot:kimi-k3": ModelEntry(
+        "Kimi K3 · GitHub Copilot",
+        ModelCapabilities(
+            tools=True, vision=True, parallel_tool_calls=True, streaming=True
+        ),
+        1_000_000,
+    ),
+    "github-copilot:kimi-k2.7-code": ModelEntry(
+        "Kimi K2.7 Code · GitHub Copilot",
+        _AGENTIC,
+        256_000,
+    ),
+    # -- Microsoft models --
+    "github-copilot:mai-code-1.1-flash": ModelEntry(
+        "MAI-Code 1.1 Flash · GitHub Copilot",
+        _AGENTIC,
+        128_000,
+    ),
     # Fable 5 (2026-06-09) is GA; its Mythos 5 sibling is approved-orgs-only, so it
     # stays out of a picker meant for the public.
     "anthropic:claude-fable-5": ModelEntry(
@@ -274,6 +421,114 @@ MATRIX: dict[str, ModelEntry] = {
     ),
     "vertex:openweight/qwen/qwen3-coder-480b-a35b-instruct-maas": ModelEntry(
         "Qwen3 Coder · Vertex AI", _AGENTIC, 256_000
+    ),
+    # -- OpenCode Go subscription models ----------------------------------------
+    # OpenCode Go is a $10/month subscription for open coding models. All models
+    # require the x-opencode-session header for routing optimization.
+    # Source: https://opencode.ai/docs/go
+    "opencode-go:glm-5.3-flash": ModelEntry(
+        "GLM-5.3 Flash · OpenCode Go", _AGENTIC, 128_000
+    ),
+    "opencode-go:glm-5.3": ModelEntry(
+        "GLM-5.3 · OpenCode Go", _AGENTIC, 128_000
+    ),
+    "opencode-go:glm-5.2": ModelEntry(
+        "GLM-5.2 · OpenCode Go", _AGENTIC, 128_000
+    ),
+    "opencode-go:glm-5.1": ModelEntry(
+        "GLM-5.1 · OpenCode Go", _AGENTIC, 128_000
+    ),
+    "opencode-go:kimi-k3": ModelEntry(
+        "Kimi K3 · OpenCode Go",
+        ModelCapabilities(
+            tools=True, vision=True, parallel_tool_calls=True, streaming=True
+        ),
+        1_000_000,
+    ),
+    "opencode-go:kimi-k2.7-code": ModelEntry(
+        "Kimi K2.7 Code · OpenCode Go", _AGENTIC, 256_000
+    ),
+    "opencode-go:kimi-k2.6": ModelEntry(
+        "Kimi K2.6 · OpenCode Go", _AGENTIC, 256_000
+    ),
+    "opencode-go:longcat-2.0": ModelEntry(
+        "LongCat 2.0 · OpenCode Go", _AGENTIC, 128_000
+    ),
+    "opencode-go:deepseek-v4.1-flash": ModelEntry(
+        "DeepSeek V4.1 Flash · OpenCode Go", _AGENTIC, 128_000
+    ),
+    "opencode-go:deepseek-v4-pro": ModelEntry(
+        "DeepSeek V4 Pro · OpenCode Go", _AGENTIC, 128_000
+    ),
+    "opencode-go:deepseek-v4-flash": ModelEntry(
+        "DeepSeek V4 Flash · OpenCode Go", _AGENTIC, 128_000
+    ),
+    "opencode-go:deepseek-v4-flash-vision-exp": ModelEntry(
+        "DeepSeek V4 Flash Vision Exp · OpenCode Go",
+        ModelCapabilities(
+            tools=True, vision=True, parallel_tool_calls=True, streaming=True
+        ),
+        128_000,
+    ),
+    "opencode-go:mimo-v2.5": ModelEntry(
+        "MiMo V2.5 · OpenCode Go", _AGENTIC, 128_000
+    ),
+    "opencode-go:mimo-v2.5-pro": ModelEntry(
+        "MiMo V2.5 Pro · OpenCode Go", _AGENTIC, 128_000
+    ),
+    "opencode-go:minimax-m3": ModelEntry(
+        "MiniMax M3 · OpenCode Go", _AGENTIC, 128_000
+    ),
+    "opencode-go:minimax-m2.7": ModelEntry(
+        "MiniMax M2.7 · OpenCode Go", _AGENTIC, 128_000
+    ),
+    "opencode-go:minimax-m2.5": ModelEntry(
+        "MiniMax M2.5 · OpenCode Go", _AGENTIC, 128_000
+    ),
+    "opencode-go:muse-spark-1.3-contributor": ModelEntry(
+        "Muse Spark 1.3 Contributor · OpenCode Go",
+        ModelCapabilities(
+            tools=True, vision=True, parallel_tool_calls=True, streaming=True
+        ),
+        128_000,
+    ),
+    "opencode-go:muse-spark-1.2-contributor": ModelEntry(
+        "Muse Spark 1.2 Contributor · OpenCode Go",
+        ModelCapabilities(
+            tools=True, vision=True, parallel_tool_calls=True, streaming=True
+        ),
+        128_000,
+    ),
+    "opencode-go:qwen3.8-max": ModelEntry(
+        "Qwen3.8 Max · OpenCode Go", _AGENTIC, 256_000
+    ),
+    "opencode-go:qwen3.8-flash": ModelEntry(
+        "Qwen3.8 Flash · OpenCode Go", _AGENTIC, 256_000
+    ),
+    "opencode-go:qwen3.7-max": ModelEntry(
+        "Qwen3.7 Max · OpenCode Go", _AGENTIC, 256_000
+    ),
+    "opencode-go:qwen3.7-plus": ModelEntry(
+        "Qwen3.7 Plus · OpenCode Go", _AGENTIC, 256_000
+    ),
+    "opencode-go:qwen3.6-plus": ModelEntry(
+        "Qwen3.6 Plus · OpenCode Go", _AGENTIC, 256_000
+    ),
+    "opencode-go:hy4-preview": ModelEntry(
+        "Hy4 Preview · OpenCode Go", _AGENTIC, 128_000
+    ),
+    "opencode-go:hy3": ModelEntry(
+        "Hy3 · OpenCode Go", _AGENTIC, 128_000
+    ),
+    "opencode-go:grok-4.6": ModelEntry(
+        "Grok 4.6 · OpenCode Go", _AGENTIC, 200_000
+    ),
+    "opencode-go:gpt-5.6-luna": ModelEntry(
+        "GPT 5.6 Luna · OpenCode Go",
+        ModelCapabilities(
+            tools=True, vision=True, parallel_tool_calls=True, streaming=True
+        ),
+        272_000,
     ),
 }
 

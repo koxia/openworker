@@ -1011,7 +1011,21 @@
     "labels": "标签",
     "labels_placeholder": "标签名，例如 Personal",
     "filters_foot": "过滤器在本机执行，先于 agent 查看结果。隐藏计数显示在工具卡和活动中 —— 永不显示内容。",
-    "filters_foot_inner": "匹配的邮件会被静默排除在 agent 读取之外 —— 无任何痕迹可供探测。"
+    "filters_foot_inner": "匹配的邮件会被静默排除在 agent 读取之外 —— 无任何痕迹可供探测。",
+    "local_oauth_setup_blurb": "使用您自己的 Google OAuth 凭据连接 Gmail。需要一次性设置。",
+    "configure_google_oauth": "配置 Google OAuth",
+    "oauth_instructions": "要启用 Gmail 访问，请创建 Google OAuth 应用：",
+    "oauth_step_1": "前往 Google Cloud Console → APIs & Services → Credentials",
+    "oauth_step_2": "创建 OAuth 2.0 客户端 ID（桌面应用类型）",
+    "oauth_step_3": "将 http://localhost:18421/oauth/callback 添加到授权重定向 URI",
+    "oauth_step_4": "将客户端 ID 和客户端密钥复制到下方",
+    "client_id": "客户端 ID",
+    "client_secret": "客户端密钥",
+    "save_config": "保存并继续",
+    "oauth_config_required": "客户端 ID 和客户端密钥为必填项",
+    "oauth_config_failed": "保存 OAuth 配置失败",
+    "oauth_signin_failed": "登录失败",
+    "signing_in": "登录中..."
   },
   "hubspot": {
     "add_portal": "＋ 添加门户",
@@ -1094,7 +1108,9 @@
     "slack_manual_step3": "粘贴两个令牌",
     "bot_token_placeholder": "Bot 令牌 · xoxb-…",
     "app_token_placeholder": "App 令牌 · xapp-…",
-    "slack_manual_pause_note": "一次只能用一种模式 —— 这会暂停所有中转工作区。"
+    "slack_manual_pause_note": "一次只能用一种模式 —— 这会暂停所有中转工作区。",
+    "gmail_blurb": "在浏览器中打开 Google —— 在那里授权。你的 OAuth 凭据仅保留在本机。",
+    "connect_gmail": "使用 Google 登录"
   },
   "gallery": {
     "all_personas": "全部同事",

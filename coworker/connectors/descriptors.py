@@ -562,8 +562,8 @@ DESCRIPTORS: list[ConnectorDescriptor] = [
         ],
         available=True,
         managed=True,
-        # Google OAuth verification (CASA) pending — one-click off until it clears.
-        managed_paused=True,
+        # Local OAuth flow enabled — no cloud broker needed.
+        managed_paused=False,
     ),
     ConnectorDescriptor(
         name="google_calendar",

@@ -9,9 +9,11 @@ from .base import (
 )
 from .capabilities import capabilities_for
 from .codex_provider import CodexProvider
+from .copilot_provider import CopilotProvider
 from .gemini_provider import GeminiProvider
 from .openai_provider import OpenAIProvider, resolve_api_key
 from .openai_responses import OpenAIResponsesProvider
+from .opencode_go_provider import OpenCodeGoProvider
 from .registry import (
     ProviderDescriptor,
     ProviderField,
@@ -35,9 +37,11 @@ __all__ = [
     "AnthropicProvider",
     "BedrockProvider",
     "CodexProvider",
+    "CopilotProvider",
     "GeminiProvider",
     "OpenAIProvider",
     "OpenAIResponsesProvider",
+    "OpenCodeGoProvider",
     "VertexProvider",
     "resolve_api_key",
     "capabilities_for",

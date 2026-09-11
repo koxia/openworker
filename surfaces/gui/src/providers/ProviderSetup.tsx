@@ -5,6 +5,9 @@ import {
   codexAuthStatus,
   codexSignin,
   codexSignout,
+  copilotAuthStatus,
+  copilotSignin,
+  copilotSignout,
   getProviders,
   removeProvider,
   setProvider,
@@ -297,24 +300,48 @@ export function useProviderSetup(opts?: { onSaved?: () => void }): ProviderSetup
 /** The gallery: one card per provider, each wearing its own state. */
 /** OAuth provider pane (auth === "oauth"): browser sign-in instead of a key form.
  * Signin runs server-side in the background; this polls the status route until the
- * flow flips to signed-in or reports an error. Tokens never reach the GUI. */
+ * flow flips to signed-in or reports an error. Tokens never reach the GUI.
+ * Dispatches to the right API based on provider name (openai-codex or github-copilot). */
 function OAuthSignIn({ info, tp, onChanged }: { info: ProviderInfo; tp: string; onChanged: () => Promise<void> }) {
   const { t } = useTranslation();
   const [busy, setBusy] = useState(!!info.authorizing);
   const [error, setError] = useState<string | null>(info.last_error || null);
   const [reopenUrl, setReopenUrl] = useState<string | null>(null);
+  const [userCode, setUserCode] = useState<string | null>(null);
+  const [verificationUri, setVerificationUri] = useState<string | null>(null);
   const alive = useRef(true);
   useEffect(() => {
     alive.current = true; // StrictMode double-mount: the cleanup below must not stick
     return () => { alive.current = false; };
   }, []);
 
+  const isCopilot = info.name === "github-copilot";
+
+  // API dispatchers based on provider name
+  const authStatus = async () => {
+    if (isCopilot) return copilotAuthStatus();
+    return codexAuthStatus();
+  };
+  const signin = async () => {
+    if (isCopilot) return copilotSignin();
+    return codexSignin();
+  };
+  const signout = async () => {
+    if (isCopilot) return copilotSignout();
+    return codexSignout();
+  };
+
   const poll = async () => {
     for (let i = 0; i < 150 && alive.current; i++) {
       await new Promise((r) => setTimeout(r, 2000));
-      const s = await codexAuthStatus().catch(() => null);
+      const s = await authStatus().catch(() => null);
       if (!s) continue;
-      if (s.authorize_url) setReopenUrl(s.authorize_url);
+      if ('authorize_url' in s && s.authorize_url) setReopenUrl(s.authorize_url);
+      // Copilot device flow: show the user code and verification URI
+      if (isCopilot && 'user_code' in s) {
+        if (s.user_code) setUserCode(s.user_code);
+        if (s.verification_uri) setVerificationUri(s.verification_uri);
+      }
       if (s.signed_in || (!s.authorizing && s.last_error)) {
         if (alive.current) {
           setBusy(false);
@@ -330,9 +357,15 @@ function OAuthSignIn({ info, tp, onChanged }: { info: ProviderInfo; tp: string; 
   const start = async () => {
     setBusy(true);
     setError(null);
-    await codexSignin().catch(() => setError(t("provider.oauth_start_error")));
+    setUserCode(null);
+    setVerificationUri(null);
+    await signin().catch(() => setError(t("provider.oauth_start_error")));
     void poll();
   };
+
+  const signInLabel = isCopilot
+    ? t("provider.sign_in_github", { defaultValue: "Sign in with GitHub" })
+    : t("provider.sign_in_chatgpt");
 
   if (info.signed_in)
     return (
@@ -345,7 +378,7 @@ function OAuthSignIn({ info, tp, onChanged }: { info: ProviderInfo; tp: string; 
             className="shrink-0 rounded-lg border border-line bg-panel px-3 py-1.5 text-[13px] text-ink hover:border-lineStrong"
             data-testid={`${tp}-oauth-signout`}
             onClick={async () => {
-              await codexSignout().catch(() => {});
+              await signout().catch(() => {});
               await onChanged();
             }}
           >
@@ -353,7 +386,9 @@ function OAuthSignIn({ info, tp, onChanged }: { info: ProviderInfo; tp: string; 
           </button>
         </div>
         <p className="text-[12px] text-faint mt-2">
-          {t("provider.oauth_plan_note")}
+          {isCopilot
+            ? t("provider.oauth_copilot_note", { defaultValue: "Models run through your GitHub Copilot subscription." })
+            : t("provider.oauth_plan_note")}
         </p>
       </div>
     );
@@ -366,20 +401,42 @@ function OAuthSignIn({ info, tp, onChanged }: { info: ProviderInfo; tp: string; 
         disabled={busy}
         data-testid={`${tp}-oauth-signin`}
       >
-        {busy ? t("provider.oauth_waiting") : t("provider.sign_in_chatgpt")}
+        {busy ? t("provider.oauth_waiting") : signInLabel}
       </button>
       {busy && (
         <p className="text-[12px] text-faint mt-2">
-          {t("provider.oauth_finish_browser")}
-          {reopenUrl && (
+          {isCopilot && userCode && verificationUri ? (
             <>
-              {" "}
+              {t("provider.oauth_device_flow_instructions", {
+                defaultValue: "Go to",
+              })}{" "}
               <button
-                className="text-muted underline decoration-line underline-offset-2 hover:text-ink"
-                onClick={() => openExternal(reopenUrl)}
+                className="text-accent underline decoration-line underline-offset-2 hover:text-ink"
+                onClick={() => openExternal(verificationUri)}
               >
-                {t("provider.oauth_reopen")}
+                {verificationUri}
               </button>
+              {" "}{t("provider.oauth_device_flow_enter_code", {
+                defaultValue: "and enter code:",
+              })}{" "}
+              <code className="rounded bg-panel border border-line px-1.5 py-0.5 font-mono text-[13px]">
+                {userCode}
+              </code>
+            </>
+          ) : (
+            <>
+              {t("provider.oauth_finish_browser")}
+              {reopenUrl && (
+                <>
+                  {" "}
+                  <button
+                    className="text-muted underline decoration-line underline-offset-2 hover:text-ink"
+                    onClick={() => openExternal(reopenUrl)}
+                  >
+                    {t("provider.oauth_reopen")}
+                  </button>
+                </>
+              )}
             </>
           )}
         </p>

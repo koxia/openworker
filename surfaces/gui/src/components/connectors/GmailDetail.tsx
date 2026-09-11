@@ -1,34 +1,83 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useTranslation } from "react-i18next";
 import {
-  connectManaged,
   disconnectGmailAccount,
   setGmailDefaultAccount,
   setGmailFilters,
+  getGmailOAuthStatus,
+  configureGmailOAuth,
+  signInGmailOAuth,
   type GmailAccount,
+  type GmailOAuthStatus,
 } from "../../api";
 import { ConnectorBadge } from "../../connectors/ConnectorIcon";
 import type { DetailProps } from "./ConnectorsSection";
 import { ToolsDisclosure } from "./ToolsDisclosure";
 import { FOOT, GRP, GRP_H, PILL_ACCENT, ROW, TAG_ACCENT, TAG_WARN, XBTN } from "./ui";
 
-// The Gmail detail page (UX-DECISIONS §21): connected mailboxes (multi-account,
-// Default badge, per-account disconnect) + "Never show agents" privacy filters.
-// Adding an account launches managed OAuth DIRECTLY — Gmail has one connect mode,
-// so no modal (the pill-modal is only for ≥2-mode connectors like Slack).
+// The Gmail detail page: local OAuth flow (no cloud broker needed).
+// - If Google OAuth client is not configured: show setup form
+// - If configured: show "Sign in with Google" button
+// - After sign-in: show connected accounts with filters
 
 const LABEL = "text-[13px] text-muted w-24 shrink-0";
 
-export function GmailDetail({ c, cloud, slack: _slack, onChanged }: DetailProps) {
+export function GmailDetail({ c, cloud: _cloud, slack: _slack, onChanged }: DetailProps) {
   const { t } = useTranslation();
+  const [oauthStatus, setOauthStatus] = useState<GmailOAuthStatus | null>(null);
+  const [showConfigForm, setShowConfigForm] = useState(false);
+  const [clientId, setClientId] = useState("");
+  const [clientSecret, setClientSecret] = useState("");
   const [busy, setBusy] = useState(false);
-  const accounts = (c.accounts ?? []) as GmailAccount[]; // email-keyed (pre-generic-layer shape)
+  const [error, setError] = useState<string | null>(null);
+  const accounts = (c.accounts ?? []) as GmailAccount[];
 
-  const addAccount = async () => {
-    setBusy(true);
-    await connectManaged("gmail"); // completes in the system browser; the poll picks it up
-    setTimeout(() => setBusy(false), 2500);
+  useEffect(() => {
+    loadStatus();
+  }, []);
+
+  const loadStatus = async () => {
+    try {
+      const status = await getGmailOAuthStatus();
+      setOauthStatus(status);
+    } catch {
+      // Ignore errors
+    }
   };
+
+  const handleConfigure = async () => {
+    if (!clientId.trim() || !clientSecret.trim()) {
+      setError(t("gmail.oauth_config_required"));
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    const result = await configureGmailOAuth(clientId.trim(), clientSecret.trim());
+    if (result.ok) {
+      setShowConfigForm(false);
+      setClientId("");
+      setClientSecret("");
+      await loadStatus();
+    } else {
+      setError(result.error || t("gmail.oauth_config_failed"));
+    }
+    setBusy(false);
+  };
+
+  const handleSignIn = async () => {
+    setBusy(true);
+    setError(null);
+    const result = await signInGmailOAuth();
+    if (result.ok) {
+      await loadStatus();
+      await onChanged();
+    } else {
+      setError(result.error || t("gmail.oauth_signin_failed"));
+    }
+    setBusy(false);
+  };
+
+  const clientConfigured = oauthStatus?.client_configured ?? false;
 
   return (
     <div data-testid="gmail-detail">
@@ -37,7 +86,7 @@ export function GmailDetail({ c, cloud, slack: _slack, onChanged }: DetailProps)
         <div className="min-w-0 flex-1">
           <h2 className="text-[20px] font-semibold tracking-tight leading-tight">Gmail</h2>
           <div className="text-[13px] text-muted flex items-center gap-1.5">
-            {c.connected ? (
+            {accounts.length > 0 ? (
               <>
                 <span className="w-2 h-2 rounded-full bg-ok" />
                 <span data-testid="gmail-status">
@@ -49,35 +98,95 @@ export function GmailDetail({ c, cloud, slack: _slack, onChanged }: DetailProps)
             )}
           </div>
         </div>
-        <button
-          className={PILL_ACCENT + (c.managed_paused ? " opacity-50" : "")}
-          data-testid="add-account-btn"
-          onClick={addAccount}
-          disabled={busy || !cloud?.signed_in || c.managed_paused}
-          title={
-            c.managed_paused
-              ? t("gmail.coming_soon_title")
-              : cloud?.signed_in
-                ? ""
-                : t("cloud.sign_in_first")
-          }
-        >
-          {c.managed_paused ? t("gmail.add_account_coming_soon") : busy ? t("cloud.check_browser") : t("gmail.add_account")}
-        </button>
+        {clientConfigured && (
+          <button
+            className={PILL_ACCENT}
+            data-testid="add-account-btn"
+            onClick={handleSignIn}
+            disabled={busy}
+          >
+            {busy ? t("gmail.signing_in") : t("gmail.add_account")}
+          </button>
+        )}
       </div>
 
-      {!c.connected && (
+      {!clientConfigured && !showConfigForm && (
         <div className={GRP}>
           <div className={ROW + " text-[13px] text-muted"}>
-            {t("gmail.setup_blurb")}
-            {cloud?.signed_in ? "" : " " + t("gmail.requires_cloud")}
+            {t("gmail.local_oauth_setup_blurb")}
           </div>
+          <button
+            className={PILL_ACCENT + " mt-2"}
+            onClick={() => setShowConfigForm(true)}
+          >
+            {t("gmail.configure_google_oauth")}
+          </button>
+        </div>
+      )}
+
+      {showConfigForm && (
+        <div className={GRP}>
+          <div className={ROW + " text-[13px] text-muted mb-2"}>
+            {t("gmail.oauth_instructions")}
+          </div>
+          <ol className="text-[12px] text-muted list-decimal list-inside space-y-1 mb-3">
+            <li>{t("gmail.oauth_step_1")}</li>
+            <li>{t("gmail.oauth_step_2")}</li>
+            <li>{t("gmail.oauth_step_3")}</li>
+            <li>{t("gmail.oauth_step_4")}</li>
+          </ol>
+          <div className={ROW}>
+            <span className={LABEL}>{t("gmail.client_id")}</span>
+            <input
+              type="text"
+              className="flex-1 min-w-0 bg-paper border border-line rounded px-2 py-1 text-[13px] outline-none focus:border-accent"
+              placeholder="xxxx.apps.googleusercontent.com"
+              value={clientId}
+              onChange={(e) => setClientId(e.target.value)}
+            />
+          </div>
+          <div className={ROW}>
+            <span className={LABEL}>{t("gmail.client_secret")}</span>
+            <input
+              type="password"
+              className="flex-1 min-w-0 bg-paper border border-line rounded px-2 py-1 text-[13px] outline-none focus:border-accent"
+              placeholder="GOCSPX-xxxx"
+              value={clientSecret}
+              onChange={(e) => setClientSecret(e.target.value)}
+            />
+          </div>
+          <div className="flex items-center gap-2 mt-2">
+            <button
+              className={PILL_ACCENT}
+              onClick={handleConfigure}
+              disabled={busy}
+            >
+              {t("gmail.save_config")}
+            </button>
+            <button
+              className="text-[12px] text-muted hover:text-ink"
+              onClick={() => {
+                setShowConfigForm(false);
+                setClientId("");
+                setClientSecret("");
+                setError(null);
+              }}
+            >
+              {t("common.cancel")}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {error && (
+        <div className="text-[12px] text-warnInk mt-2 px-3 py-2 rounded bg-warnSoft border border-warnLine">
+          {error}
         </div>
       )}
 
       {accounts.length > 0 && (
         <>
-          <div className={GRP_H + " !mt-0"}>{t("gmail.accounts")}</div>
+          <div className={GRP_H + " !mt-4"}>{t("gmail.accounts")}</div>
           <div className={GRP} data-testid="gmail-accounts">
             {accounts.map((a) => (
               <AccountRow key={a.email} a={a} onChanged={onChanged} />
@@ -86,7 +195,7 @@ export function GmailDetail({ c, cloud, slack: _slack, onChanged }: DetailProps)
         </>
       )}
 
-      <FiltersGroup c={c} onChanged={onChanged} />
+      {accounts.length > 0 && <FiltersGroup c={c} onChanged={onChanged} />}
 
       <ToolsDisclosure c={c} onChanged={onChanged} />
       <div className={FOOT + " mt-2"}>

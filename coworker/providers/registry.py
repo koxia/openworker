@@ -27,6 +27,7 @@ from .bedrock_provider import BedrockProvider
 from .gemini_provider import GeminiProvider
 from .openai_provider import OpenAIProvider
 from .openai_responses import OpenAIResponsesProvider
+from .opencode_go_provider import OpenCodeGoProvider
 from .vertex_provider import VertexProvider
 
 DEFAULT_OLLAMA_URL = "http://localhost:11434"
@@ -137,6 +138,14 @@ def _build_codex(profile: dict[str, Any], secrets: Any) -> ProviderClient:
     return CodexProvider(secrets=secrets)
 
 
+def _build_copilot(profile: dict[str, Any], secrets: Any) -> ProviderClient:
+    # Credentials come from the GitHub OAuth device flow + Copilot token,
+    # resolved (and refreshed) at call time by the token store — never a key.
+    from .copilot_provider import CopilotProvider
+
+    return CopilotProvider(secrets=secrets)
+
+
 def _build_anthropic(profile: dict[str, Any], secrets: Any) -> ProviderClient:
     # Key resolution stays in AnthropicProvider/resolve_api_key (explicit → env → SecretStore),
     # deferred to first call so the provider can be built before a key exists.
@@ -199,6 +208,15 @@ def _build_ollama(profile: dict[str, Any], secrets: Any) -> ProviderClient:
     # string, so we pass a placeholder. `base_url` comes from the stored profile (or the default).
     base_url = _normalize_ollama_url((profile or {}).get("base_url"))
     return OpenAIProvider(api_key="ollama", base_url=base_url)
+
+
+def _build_opencode_go(profile: dict[str, Any], secrets: Any) -> ProviderClient:
+    # OpenCode Go requires a stable session ID header for routing optimization.
+    # The session ID is generated per-provider instance (per conversation).
+    api_key = ((profile or {}).get("api_key") or "").strip() or os.environ.get("OPENCODE_GO_API_KEY", "").strip()
+    if not api_key:
+        raise RuntimeError("No OpenCode Go API key configured — add it in Settings ▸ Models.")
+    return OpenCodeGoProvider(api_key=api_key, secrets=secrets)
 
 
 def _openai_compat(vendor: str, default_base_url: str, env_key: Optional[str] = None):
@@ -369,6 +387,18 @@ DESCRIPTORS: list[ProviderDescriptor] = [
         recommended_model="gpt-5.6-sol",
         blurb="Sign in with your ChatGPT plan and run OpenAI models through your "
         "subscription — no API key. Tokens stay on this machine.",
+        auth="oauth",
+    ),
+    ProviderDescriptor(
+        name="github-copilot",
+        title="GitHub Copilot",
+        needs_key=False,
+        fields=[],
+        build=_build_copilot,
+        recommended_model="gpt-5.5",
+        blurb="Sign in with your GitHub account and run models through your "
+        "Copilot subscription — no API key needed. Works even when your org "
+        "has disabled API key access.",
         auth="oauth",
     ),
     ProviderDescriptor(
@@ -687,6 +717,23 @@ DESCRIPTORS: list[ProviderDescriptor] = [
         # `ollama pull qwen3-coder:30b`.
         recommended_model="qwen3-coder:30b",
     ),
+    ProviderDescriptor(
+        name="opencode-go",
+        title="OpenCode Go",
+        needs_key=True,
+        fields=[
+            ProviderField(
+                "api_key",
+                "OpenCode Go API key",
+                secret=True,
+                placeholder="sk-…",
+            ),
+        ],
+        build=_build_opencode_go,
+        recommended_model="glm-5.2",
+        env_key="OPENCODE_GO_API_KEY",
+        blurb="$10/month subscription for open coding models. Requires x-opencode-session header.",
+    ),
 ]
 
 _BY_NAME = {d.name: d for d in DESCRIPTORS}
@@ -970,6 +1017,29 @@ def verify_provider_key(
         elif name == "ollama":
             base = _normalize_ollama_url(base_url)
             resp = httpx.get(base.rstrip("/") + "/models", timeout=timeout)
+        elif name == "opencode-go":
+            # OpenCode Go doesn't support /models endpoint, use a minimal chat completion instead
+            default_base = next(
+                (f.default for f in d.fields if f.key == "base_url" and f.default), ""
+            )
+            base = (
+                (base_url or "").strip().rstrip("/")
+                or default_base.rstrip("/")
+                or "https://opencode.ai/zen/go/v1"
+            )
+            resp = httpx.post(
+                base + "/chat/completions",
+                headers={
+                    "Authorization": f"Bearer {key}",
+                    "x-opencode-session": "verify-session",
+                },
+                json={
+                    "model": "glm-5.2",
+                    "messages": [{"role": "user", "content": "hi"}],
+                    "max_tokens": 1,
+                },
+                timeout=timeout,
+            )
         elif name in ("ark", "ark-agent-plan-cn"):
             default_base = next(
                 (f.default for f in d.fields if f.key == "base_url" and f.default), ""

@@ -1026,7 +1026,21 @@
     "labels": "Labels",
     "labels_placeholder": "Label name, e.g. Personal",
     "filters_foot": "Filters are enforced on this computer, before an agent sees results. Hidden counts show on the tool card and in Activity — never the content.",
-    "filters_foot_inner": "Matching email is silently left out of what agents read — no trace they could probe."
+    "filters_foot_inner": "Matching email is silently left out of what agents read — no trace they could probe.",
+    "local_oauth_setup_blurb": "Connect Gmail with your own Google OAuth credentials. One-time setup required.",
+    "configure_google_oauth": "Configure Google OAuth",
+    "oauth_instructions": "To enable Gmail access, create a Google OAuth app:",
+    "oauth_step_1": "Go to Google Cloud Console → APIs & Services → Credentials",
+    "oauth_step_2": "Create an OAuth 2.0 Client ID (Desktop app type)",
+    "oauth_step_3": "Add http://localhost:18421/oauth/callback to Authorized redirect URIs",
+    "oauth_step_4": "Copy the Client ID and Client Secret below",
+    "client_id": "Client ID",
+    "client_secret": "Client Secret",
+    "save_config": "Save & Continue",
+    "oauth_config_required": "Client ID and Client Secret are required",
+    "oauth_config_failed": "Failed to save OAuth configuration",
+    "oauth_signin_failed": "Sign-in failed",
+    "signing_in": "Signing in..."
   },
   "hubspot": {
     "add_portal": "＋ Add portal",
@@ -1111,7 +1125,9 @@
     "slack_manual_step3": "Paste both tokens",
     "bot_token_placeholder": "Bot token · xoxb-…",
     "app_token_placeholder": "App token · xapp-…",
-    "slack_manual_pause_note": "One mode at a time — this pauses any relay workspaces."
+    "slack_manual_pause_note": "One mode at a time — this pauses any relay workspaces.",
+    "gmail_blurb": "Opens Google in your browser — approve access there. Your OAuth credentials stay on this computer.",
+    "connect_gmail": "Sign in with Google"
   },
   "gallery": {
     "all_personas": "All coworkers",

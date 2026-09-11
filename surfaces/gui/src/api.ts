@@ -1860,6 +1860,9 @@ export interface ProviderInfo {
   account?: string | null; // signed-in account label (email or id)
   authorizing?: boolean;
   last_error?: string | null;
+  // GitHub Copilot device flow: the user code and verification URI to display.
+  user_code?: string | null;
+  verification_uri?: string | null;
 }
 
 // -- ChatGPT-subscription provider sign-in (OAuth; tokens never reach the GUI) ------
@@ -1883,6 +1886,31 @@ export async function codexAuthStatus(): Promise<CodexAuthStatus> {
 
 export async function codexSignout(): Promise<{ ok: boolean }> {
   const res = await fetch(`${httpBase()}/v1/providers/openai-codex/signout`, { method: "POST" });
+  return res.json();
+}
+
+// -- GitHub Copilot provider sign-in (OAuth device flow; tokens never reach the GUI) -
+export interface CopilotAuthStatus {
+  signed_in: boolean;
+  account?: string | null;
+  authorizing: boolean;
+  last_error?: string | null;
+  user_code?: string | null;
+  verification_uri?: string | null;
+}
+
+export async function copilotSignin(): Promise<{ ok: boolean }> {
+  const res = await fetch(`${httpBase()}/v1/providers/github-copilot/signin`, { method: "POST" });
+  return res.json();
+}
+
+export async function copilotAuthStatus(): Promise<CopilotAuthStatus> {
+  const res = await fetch(`${httpBase()}/v1/providers/github-copilot/status`);
+  return res.json();
+}
+
+export async function copilotSignout(): Promise<{ ok: boolean }> {
+  const res = await fetch(`${httpBase()}/v1/providers/github-copilot/signout`, { method: "POST" });
   return res.json();
 }
 
@@ -2288,6 +2316,53 @@ export async function setGmailFilters(filters: { senders?: string[]; labels?: st
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(filters),
+  });
+  return res.json();
+}
+
+// -- Gmail local OAuth (one-click, no cloud broker) ----------------------------
+
+export interface GmailOAuthStatus {
+  client_configured: boolean;
+  accounts: { email: string; connected: boolean }[];
+  authorize_url?: string | null;
+}
+
+export async function getGmailOAuthStatus(): Promise<GmailOAuthStatus> {
+  const res = await fetch(`${httpBase()}/v1/connectors/gmail/oauth/status`);
+  return res.json();
+}
+
+export async function configureGmailOAuth(clientId: string, clientSecret: string): Promise<{ ok: boolean; error?: string }> {
+  const res = await fetch(`${httpBase()}/v1/connectors/gmail/oauth/configure`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ client_id: clientId, client_secret: clientSecret }),
+  });
+  return res.json();
+}
+
+export async function signInGmailOAuth(): Promise<{ ok: boolean; account?: string; error?: string }> {
+  const res = await fetch(`${httpBase()}/v1/connectors/gmail/oauth/signin`, {
+    method: "POST",
+  });
+  return res.json();
+}
+
+export async function signOutGmailOAuth(email: string): Promise<{ ok: boolean; error?: string }> {
+  const res = await fetch(`${httpBase()}/v1/connectors/gmail/oauth/signout`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email }),
+  });
+  return res.json();
+}
+
+export async function verifyGmailOAuth(email: string): Promise<{ ok: boolean; account?: string; error?: string; state?: string }> {
+  const res = await fetch(`${httpBase()}/v1/connectors/gmail/oauth/verify`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email }),
   });
   return res.json();
 }

@@ -1394,6 +1394,63 @@ def create_app(manager: SessionManager) -> FastAPI:
             return {"ok": False, "error": "labels must be a list"}
         return gmail_accounts.set_filters(manager.secrets, senders, labels)
 
+    # -- Gmail local OAuth (one-click, no cloud broker) -------------------------
+    @app.get("/v1/connectors/gmail/oauth/status")
+    def gmail_oauth_status() -> dict[str, Any]:
+        """Gmail OAuth status: client config, sign-in state, accounts."""
+        from ..connectors import gmail_accounts, gmail_oauth
+
+        client_config = gmail_oauth.get_client_config(manager.secrets)
+        accounts = gmail_accounts.list_accounts(manager.secrets)
+        return {
+            "client_configured": client_config is not None,
+            "accounts": [
+                {"email": email, "connected": bool(p.get("access_token"))}
+                for email, p in accounts
+            ],
+            "authorize_url": gmail_oauth.last_authorize_url,
+        }
+
+    @app.post("/v1/connectors/gmail/oauth/configure")
+    def gmail_oauth_configure(body: dict) -> dict[str, Any]:
+        """Store the Google OAuth client ID and secret."""
+        from ..connectors import gmail_oauth
+
+        client_id = str((body or {}).get("client_id", "")).strip()
+        client_secret = str((body or {}).get("client_secret", "")).strip()
+        return gmail_oauth.set_client_config(manager.secrets, client_id, client_secret)
+
+    @app.post("/v1/connectors/gmail/oauth/signin")
+    async def gmail_oauth_signin() -> dict[str, Any]:
+        """Start the local OAuth flow: open browser, wait for callback."""
+        from ..connectors import gmail_oauth
+
+        try:
+            result = await gmail_oauth.sign_in(manager.secrets)
+            return result
+        except Exception as exc:
+            return {"ok": False, "error": str(exc)}
+
+    @app.post("/v1/connectors/gmail/oauth/signout")
+    def gmail_oauth_signout(body: dict) -> dict[str, Any]:
+        """Disconnect a Gmail account."""
+        from ..connectors import gmail_accounts, gmail_oauth
+
+        email = str((body or {}).get("email", "")).strip()
+        if email:
+            store = gmail_oauth.GmailTokenStore(manager.secrets, email)
+            store.clear()
+            return gmail_accounts.disconnect_account(manager.secrets, email)
+        return {"ok": False, "error": "email required"}
+
+    @app.post("/v1/connectors/gmail/oauth/verify")
+    def gmail_oauth_verify(body: dict) -> dict[str, Any]:
+        """Verify a Gmail account's token."""
+        from ..connectors import gmail_oauth
+
+        email = str((body or {}).get("email", "")).strip()
+        return gmail_oauth.verify(manager.secrets, email)
+
     @app.post("/v1/connectors/google_calendar/accounts/{email}/disconnect")
     async def gcal_account_disconnect(email: str) -> dict[str, Any]:
         """Drop ONE Google Calendar account (cloud metadata best-effort first);
@@ -1878,6 +1935,24 @@ def create_app(manager: SessionManager) -> FastAPI:
     @app.post("/v1/providers/openai-codex/signout")
     def codex_signout() -> dict[str, Any]:
         return manager.codex_signout()
+
+    # -- GitHub Copilot provider (OAuth device flow, no key) --------------------
+    @app.post("/v1/providers/github-copilot/signin")
+    async def copilot_signin() -> dict[str, Any]:
+        # Device flow: the user visits a URL and enters a code. Polling for the
+        # token can take minutes, so it runs as a background task; the GUI polls
+        # the status route for the flip (authorizing → signed_in | last_error).
+        manager.begin_copilot_signin()
+        asyncio.create_task(manager.copilot_signin())
+        return {"ok": True, "started": True}
+
+    @app.get("/v1/providers/github-copilot/status")
+    def copilot_status() -> dict[str, Any]:
+        return manager.copilot_status()
+
+    @app.post("/v1/providers/github-copilot/signout")
+    def copilot_signout() -> dict[str, Any]:
+        return manager.copilot_signout()
 
     # -- settings (model API key) -----------------------------------------------
     @app.get("/v1/settings")

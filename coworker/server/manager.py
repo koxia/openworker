@@ -262,6 +262,11 @@ class SessionManager:
         # the providers list + status route so the GUI can show "authorizing…".
         self._codex_authorizing = False
         self._codex_error: Optional[str] = None
+        # GitHub Copilot provider sign-in in flight / its last error — same pattern.
+        self._copilot_authorizing = False
+        self._copilot_error: Optional[str] = None
+        self._copilot_user_code: Optional[str] = None
+        self._copilot_verification_uri: Optional[str] = None
         # http servers whose anonymous connect came back 401/403 — the failure is
         # "needs sign-in", so the GUI offers the OAuth switch instead of a raw error.
         self._mcp_auth_hints: set[str] = set()
@@ -3021,6 +3026,11 @@ class SessionManager:
                 if d.name == "openai-codex":
                     row["authorizing"] = self._codex_authorizing
                     row["last_error"] = self._codex_error
+                if d.name == "github-copilot":
+                    row["authorizing"] = self._copilot_authorizing
+                    row["last_error"] = self._copilot_error
+                    row["user_code"] = self._copilot_user_code
+                    row["verification_uri"] = self._copilot_verification_uri
             out.append(row)
         return out
 
@@ -3214,6 +3224,67 @@ class SessionManager:
         self._refresh_provider("openai-codex")
         return {"ok": True, "had_tokens": had_tokens}
 
+    # -- GitHub Copilot provider (OAuth device flow, no key) --------------------
+    def begin_copilot_signin(self) -> None:
+        """Flag `authorizing` BEFORE the background sign-in task starts."""
+        self._copilot_authorizing = True
+        self._copilot_error = None
+        self._copilot_user_code = None
+        self._copilot_verification_uri = None
+
+    async def copilot_signin(self) -> dict[str, Any]:
+        """Run the interactive device flow and store the tokens."""
+        from ..providers import copilot_auth
+
+        self._copilot_authorizing = True
+        self._copilot_error = None
+        self._copilot_user_code = None
+        self._copilot_verification_uri = None
+
+        def on_user_code(uri: str, code: str) -> None:
+            self._copilot_user_code = code
+            self._copilot_verification_uri = uri
+
+        try:
+            result = await copilot_auth.sign_in(
+                self.secrets, on_user_code=on_user_code
+            )
+        except Exception as exc:
+            self._copilot_error = str(exc)
+            return {"ok": False, "error": str(exc)}
+        finally:
+            self._copilot_authorizing = False
+        self._refresh_provider("github-copilot")
+        # Same convenience as codex: surface the recommended model right away.
+        added = "github-copilot:gpt-5.5"
+        self.add_model(added)
+        if not self._provider_configured(self._model_provider(self.model)):
+            self.set_default_model(added)
+        return result
+
+    def copilot_status(self) -> dict[str, Any]:
+        from ..providers import copilot_auth
+
+        store = copilot_auth.CopilotTokenStore(self.secrets)
+        return {
+            "signed_in": store.signed_in(),
+            "account": store.account_label(),
+            "authorizing": self._copilot_authorizing,
+            "last_error": self._copilot_error,
+            "user_code": self._copilot_user_code,
+            "verification_uri": self._copilot_verification_uri,
+        }
+
+    def copilot_signout(self) -> dict[str, Any]:
+        from ..providers import copilot_auth
+
+        had_tokens = copilot_auth.CopilotTokenStore(self.secrets).clear()
+        self._copilot_error = None
+        self._copilot_user_code = None
+        self._copilot_verification_uri = None
+        self._refresh_provider("github-copilot")
+        return {"ok": True, "had_tokens": had_tokens}
+
     def verify_provider(
         self, name: str, fields: Optional[dict[str, Any]]
     ) -> dict[str, Any]:
@@ -3227,8 +3298,11 @@ class SessionManager:
             return {"ok": False, "error": f"unknown provider: {name}"}
         if d.auth == "oauth":
             # No key form — verify from the stored token set (signed-out / expired / OK).
+            # Dispatch to the right auth module based on provider name.
+            if name == "github-copilot":
+                from ..providers import copilot_auth
+                return copilot_auth.verify(self.secrets)
             from ..providers import codex_auth
-
             return codex_auth.verify(self.secrets)
         fields = fields or {}
         profile = self.secrets.get(f"provider:{name}") or {}
