@@ -140,11 +140,14 @@ check_venv() {
     log_ok "Python venv: $VENV_DIR"
     # Check key packages
     local missing=()
-    for pkg in pyinstaller typer; do
-      if ! "$VENV_DIR/bin/python" -c "import $pkg" &>/dev/null; then
-        missing+=("$pkg")
-      fi
-    done
+    # PyInstaller's distribution name is lowercase, but its Python module is
+    # capitalized. Keep the check aligned with the actual import name.
+    if ! "$VENV_DIR/bin/python" -c "import PyInstaller" &>/dev/null; then
+      missing+=("pyinstaller")
+    fi
+    if ! "$VENV_DIR/bin/python" -c "import typer" &>/dev/null; then
+      missing+=("typer")
+    fi
     if [ ${#missing[@]} -gt 0 ]; then
       log_warn "venv missing packages: ${missing[*]}"
       return 1
