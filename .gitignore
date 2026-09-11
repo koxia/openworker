@@ -10,3 +10,9 @@ dist/
 # Local secrets (live-smoke BYO keys) — never committed
 .env
 .claude/settings.local.json
+
+# Tauri build artifacts (DMG, app bundles, binaries) — built locally per machine
+surfaces/gui/src-tauri/target/
+surfaces/gui/dist/
+*.dmg
+*.app
