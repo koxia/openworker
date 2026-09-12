@@ -51,6 +51,15 @@ _PRESETS: dict[str, EmailServers] = {
     "me.com": EmailServers("imap.mail.me.com", 993, "smtp.mail.me.com", 587),
     "mac.com": EmailServers("imap.mail.me.com", 993, "smtp.mail.me.com", 587),
     "fastmail.com": EmailServers("imap.fastmail.com", 993, "smtp.fastmail.com", 465),
+    # Chinese email providers
+    "126.com": EmailServers("imap.126.com", 993, "smtp.126.com", 465),
+    "163.com": EmailServers("imap.163.com", 993, "smtp.163.com", 465),
+    "yeah.net": EmailServers("imap.yeah.net", 993, "smtp.yeah.net", 465),
+    "qq.com": EmailServers("imap.qq.com", 993, "smtp.qq.com", 465),
+    "foxmail.com": EmailServers("imap.qq.com", 993, "smtp.qq.com", 465),
+    "sina.com": EmailServers("imap.sina.com", 993, "smtp.sina.com", 465),
+    "sina.cn": EmailServers("imap.sina.com", 993, "smtp.sina.com", 465),
+    "sohu.com": EmailServers("imap.sohu.com", 993, "smtp.sohu.com", 465),
 }
 
 
@@ -98,6 +107,16 @@ def _auth_hint(servers: EmailServers) -> str:
         return (
             " For Gmail, check that 2-Step Verification is on and that this is an app "
             "password from myaccount.google.com/apppasswords — not your account password."
+        )
+    if servers.imap_host in ("imap.126.com", "imap.163.com", "imap.yeah.net"):
+        return (
+            " For 126/163/Yeah.net, use the authorization code (授权码) from your "
+            "account settings, not your login password. Enable IMAP/SMTP in settings first."
+        )
+    if servers.imap_host == "imap.qq.com":
+        return (
+            " For QQ/Foxmail, use the authorization code from "
+            "mail.qq.com → Settings → Accounts → POP3/IMAP/SMTP."
         )
     return " Check the address and app password in the connector settings."
 
@@ -283,7 +302,13 @@ def _parse_list_line(line: bytes) -> Optional[str]:
 
 
 def _select_readonly(imap: imaplib.IMAP4, folder: str) -> Optional[str]:
-    status, _ = imap.select(_quote(folder), readonly=True)
+    # Try with readonly=True first, fall back to regular select for compatibility
+    # Some IMAP servers (e.g., 126.com) don't support the readonly parameter well
+    try:
+        status, _ = imap.select(_quote(folder), readonly=True)
+    except imaplib.IMAP4.error:
+        # Fallback: try without readonly parameter
+        status, _ = imap.select(_quote(folder))
     if status != "OK":
         return f"cannot open folder {folder!r}"
     return None
@@ -818,7 +843,11 @@ def validate_email_account(creds: dict[str, Any]) -> tuple[bool, str, str]:
         imap = _default_imap_factory(servers.imap_host, servers.imap_port)
         try:
             imap.login(address, creds.get("app_password", ""))
-            status, data = imap.select('"INBOX"', readonly=True)
+            # Try with readonly first, fall back to regular select
+            try:
+                status, data = imap.select('"INBOX"', readonly=True)
+            except imaplib.IMAP4.error:
+                status, data = imap.select('"INBOX"')
             if status == "OK" and data and data[0]:
                 inbox_count = data[0].decode(errors="replace")
         finally:
