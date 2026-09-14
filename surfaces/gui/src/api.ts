@@ -919,6 +919,7 @@ export interface ModelSettings {
   // Composer: show the context-window fill bar (default FALSE; absent → the chip shows
   // the session total). The usage popover keeps both numbers regardless.
   context_bar?: boolean;
+  copilot_thinking?: boolean;
   // Auto-Approve mode (spec §1.5): the feature flag that offers the reviewer mode, and its
   // shadow-eval sibling. Both default FALSE and are absent on older backends — the composer
   // hides the Auto-Approve mode entry unless auto_approve is explicitly true.
@@ -929,6 +930,9 @@ export interface ModelSettings {
   // {full id → context window in tokens}, verified matrix entries only — drives the
   // composer's context-fill meter (absent id → the meter hides). Optional for older backends.
   model_context_windows?: Record<string, number>;
+  model_thinking?: Record<string, boolean>;
+  model_variants?: Record<string, string[]>;
+  copilot_variant?: string;
   // Token savings (PDF attachments): fallback for models without native PDF support,
   // and attach-time thresholds. Optional so the GUI is robust to an older backend.
   pdf_fallback?: "text" | "images";
@@ -1729,6 +1733,24 @@ export async function setDefaultModel(
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ model }),
+  });
+  return res.json();
+}
+
+export async function setCopilotThinking(value: boolean): Promise<ModelSettings> {
+  const res = await fetch(`${httpBase()}/v1/settings/copilot-thinking`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ value }),
+  });
+  return res.json();
+}
+
+export async function setCopilotVariant(value: string): Promise<ModelSettings> {
+  const res = await fetch(`${httpBase()}/v1/settings/copilot-variant`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ value }),
   });
   return res.json();
 }

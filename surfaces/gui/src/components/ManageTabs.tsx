@@ -12,6 +12,7 @@ import {
   resolveUnauthorized,
   unsubscribeChannel,
   setDefaultModel,
+  setCopilotVariant,
   updateConnectorTools,
   type CloudStatus,
   type Connector,
@@ -209,6 +210,24 @@ function ComposerPickerCard({
           );
         })}
       </div>
+      {(settings.model_variants?.[settings.model]?.length || 0) > 0 && (
+        <div className="mt-4 flex items-center justify-between gap-3 rounded-lg border border-line bg-paper px-3 py-2.5">
+          <div>
+            <div className="text-[13px] font-medium text-ink">Default thinking variant</div>
+            <div className="text-[12px] text-muted mt-0.5">Used when starting a new session with the default model.</div>
+          </div>
+          <select
+            className="px-2 py-1.5 rounded-md border border-line bg-panel text-[13px] text-ink"
+            value={settings.copilot_variant || "default"}
+            onChange={(event) => setCopilotVariant(event.target.value).then(() => onChanged())}
+          >
+            <option value="default">Thinking off</option>
+            {(settings.model_variants?.[settings.model] || []).map((variant) => (
+              <option key={variant} value={variant}>Thinking: {variant}</option>
+            ))}
+          </select>
+        </div>
+      )}
     </div>
   );
 }

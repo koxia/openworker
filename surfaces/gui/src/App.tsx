@@ -21,6 +21,8 @@ import {
   deleteMemory,
   updateMemory,
   getSettings,
+  setCopilotThinking,
+  setCopilotVariant,
   getPersonas,
   getInbox,
   getUnattended,
@@ -207,6 +209,10 @@ export function App() {
   // {full model id → context window in tokens} from the curated matrix (verified only);
   // drives the composer usage chip's context-fill meter.
   const [modelContextWindows, setModelContextWindows] = useState<Record<string, number>>({});
+  const [modelThinking, setModelThinking] = useState<Record<string, boolean>>({});
+  const [copilotThinking, setCopilotThinkingState] = useState(false);
+  const [copilotVariant, setCopilotVariantState] = useState("default");
+  const [modelVariants, setModelVariants] = useState<Record<string, string[]>>({});
   // Settings: show the composer's context-window fill bar. OFF by default (owner ask),
   // so an older backend without the field also shows the session total.
   const [contextBar, setContextBar] = useState(false);
@@ -613,8 +619,13 @@ export function App() {
     getSettings()
       .then((s) => {
         setModels(s.models || []);
+        if (s.model) setModel(s.model);
         setModelLabels(s.model_labels || {});
         setModelContextWindows(s.model_context_windows || {});
+        setModelThinking(s.model_thinking || {});
+        setCopilotThinkingState(s.copilot_thinking === true);
+        setCopilotVariantState(s.copilot_variant || "default");
+        setModelVariants(s.model_variants || {});
         setContextBar(s.context_bar === true);
         setModelReady(s.model_ready);
         if (s.surfaces) setSurfaces(s.surfaces);
@@ -2073,6 +2084,18 @@ export function App() {
               model={model}
               models={models}
               modelLabels={modelLabels}
+              modelThinking={modelThinking}
+              modelVariants={modelVariants}
+              copilotVariant={copilotVariant}
+              onCopilotVariantChange={(value) => {
+                setCopilotVariantState(value);
+                void setCopilotVariant(value);
+              }}
+              copilotThinking={copilotThinking}
+              onCopilotThinkingChange={(value) => {
+                setCopilotThinkingState(value);
+                void setCopilotThinking(value);
+              }}
               running={running}
               gateOpen={!unattended && (!!pendingTeam || !!pendingItemsReq)}
               connected={connected}

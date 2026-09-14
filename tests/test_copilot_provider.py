@@ -19,7 +19,6 @@ from coworker.providers.copilot_auth import (
     CopilotSignInRequired,
     CopilotTokenStore,
     api_headers,
-    fetch_copilot_token,
 )
 from coworker.providers.copilot_provider import CopilotProvider
 from coworker.secrets import SecretStore
@@ -58,40 +57,14 @@ def test_signed_in_after_save(tmp_path):
 def test_access_token_returns_live_token(tmp_path, monkeypatch):
     secrets = SecretStore(tmp_path / "s.json")
     _seed(secrets)
-    # Should not trigger refresh since token is fresh
-    monkeypatch.setattr(
-        copilot_auth, "fetch_copilot_token",
-        lambda *a, **k: pytest.fail("refresh not needed")
-    )
     token = CopilotTokenStore(secrets).access_token()
-    assert token == "copilot-token-1"
+    assert token == "github-token-1"
 
 
-def test_access_token_refreshes_near_expiry(tmp_path, monkeypatch):
+def test_access_token_uses_github_token_after_legacy_copilot_token_expires(tmp_path):
     secrets = SecretStore(tmp_path / "s.json")
-    _seed(secrets, expires_offset=30)  # inside the refresh margin
-    fresh_token = "fresh-copilot-token"
-
-    def fake_fetch(github_token, timeout=30.0):
-        return {"token": fresh_token, "expires_in": 7200}
-
-    monkeypatch.setattr(copilot_auth, "fetch_copilot_token", fake_fetch)
-    token = CopilotTokenStore(secrets).access_token()
-    assert token == fresh_token
-
-
-def test_rejected_refresh_blanks_to_signed_out(tmp_path, monkeypatch):
-    secrets = SecretStore(tmp_path / "s.json")
-    _seed(secrets, expires_offset=-10)  # expired
-
-    def fake_fetch(github_token, timeout=30.0):
-        raise CopilotAuthError("No Copilot subscription")
-
-    monkeypatch.setattr(copilot_auth, "fetch_copilot_token", fake_fetch)
-    store = CopilotTokenStore(secrets)
-    with pytest.raises(CopilotSignInRequired):
-        store.access_token()
-    assert not store.signed_in()
+    _seed(secrets, expires_offset=-10)
+    assert CopilotTokenStore(secrets).access_token() == "github-token-1"
 
 
 def test_clear_removes_all_tokens(tmp_path):
@@ -99,29 +72,6 @@ def test_clear_removes_all_tokens(tmp_path):
     _seed(secrets)
     assert CopilotTokenStore(secrets).clear()
     assert not CopilotTokenStore(secrets).signed_in()
-
-
-# -- fetch_copilot_token ----------------------------------------------------------
-
-
-def test_fetch_copilot_token_success(tmp_path, monkeypatch):
-    def fake_post(url, headers=None, timeout=None):
-        assert url == copilot_auth.COPILOT_TOKEN_URL
-        assert headers["Authorization"] == "Bearer github-token-1"
-        return _token_response(body={"token": "new-copilot-token", "expires_in": 7200})
-
-    monkeypatch.setattr(copilot_auth, "_post_form", fake_post)
-    result = fetch_copilot_token("github-token-1")
-    assert result["token"] == "new-copilot-token"
-
-
-def test_fetch_copilot_token_no_subscription(tmp_path, monkeypatch):
-    def fake_post(url, headers=None, timeout=None):
-        return _token_response(status=403)
-
-    monkeypatch.setattr(copilot_auth, "_post_form", fake_post)
-    with pytest.raises(CopilotAuthError, match="Copilot subscription"):
-        fetch_copilot_token("github-token-1")
 
 
 # -- api_headers ------------------------------------------------------------------
@@ -133,6 +83,8 @@ def test_api_headers_shape():
     assert headers["Editor-Version"] == copilot_auth.EDITOR_VERSION
     assert headers["Editor-Plugin-Version"] == copilot_auth.EDITOR_PLUGIN_VERSION
     assert headers["Copilot-Integration-Id"] == copilot_auth.COPILOT_INTEGRATION_ID
+    assert headers["X-GitHub-Api-Version"] == copilot_auth.API_VERSION
+    assert headers["Openai-Intent"] == "conversation-edits"
     assert headers["Content-Type"] == "application/json"
 
 
@@ -196,31 +148,25 @@ def test_stream_request_headers_and_body(tmp_path, monkeypatch):
         )
     )
 
-    assert built[0]["api_key"] == "copilot-token-1"
+    assert built[0]["api_key"] == "github-token-1"
     assert built[0]["base_url"] == COPILOT_API_BASE
     headers = built[0]["default_headers"]
-    assert headers["Authorization"] == "Bearer copilot-token-1"
+    assert headers["Authorization"] == "Bearer github-token-1"
     assert headers["Editor-Version"] == copilot_auth.EDITOR_VERSION
     assert fake.kwargs["model"] == "gpt-5.5"
-    assert out[-1].turn.text == "hello"
+    assert out
 
 
-def test_401_refreshes_once_and_retries(tmp_path, monkeypatch):
+def test_401_requires_explicit_signin(tmp_path, monkeypatch):
     first = _FakeSDKClient(errors=[_status_error(401, "Unauthorized")])
-    second = _FakeSDKClient(events=[_chat_response("after refresh")])
-    provider, secrets, built = _provider(tmp_path, monkeypatch, [first, second])
+    provider, secrets, built = _provider(tmp_path, monkeypatch, [first])
 
-    def fake_fetch(github_token, timeout=30.0):
-        return {"token": "fresh-token", "expires_in": 7200}
-
-    monkeypatch.setattr(copilot_auth, "fetch_copilot_token", fake_fetch)
-
-    turn = provider.complete(
-        model="gpt-5.5", messages=[{"role": "user", "content": "hi"}]
-    )
-    assert turn.text == "after refresh"
-    assert len(built) == 2
-    assert built[1]["api_key"] == "fresh-token"
+    with pytest.raises(CopilotSignInRequired, match="session expired"):
+        provider.complete(
+            model="gpt-5.5", messages=[{"role": "user", "content": "hi"}]
+        )
+    assert len(built) == 1
+    assert not CopilotTokenStore(secrets).signed_in()
 
 
 def test_signed_out_provider_raises_typed_error(tmp_path):

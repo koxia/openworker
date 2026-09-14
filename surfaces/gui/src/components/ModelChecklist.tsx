@@ -54,7 +54,11 @@ export function ModelChecklist({
   const rows = [
     ...suggested.map(prefixed),
     ...curated.filter((id) => provOf(id) === provider),
-  ].filter((id, i, a) => a.indexOf(id) === i);
+  ]
+    .filter((id, i, a) => a.indexOf(id) === i)
+    // GitHub's live catalog is authoritative: its static matrix is only a fallback
+    // for the sign-in preview and must not reintroduce /responses-only models.
+    .filter((id) => provider !== "github-copilot" || suggested.includes(bare(id)));
 
   const checked = (id: string) => curated.includes(id);
   const refresh = async () => {
