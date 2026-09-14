@@ -587,10 +587,13 @@ button.btn.danger { color: var(--accent); }
 .dd-backdrop { position: fixed; inset: 0; z-index: 20; }
 .dd-menu {
   position: absolute; bottom: calc(100% + 6px); left: 0; z-index: 21;
-  min-width: 240px; background: var(--panel); border: 1px solid var(--line-strong);
+  min-width: 240px; max-height: 60vh; overflow-y: auto; background: var(--panel); border: 1px solid var(--line-strong);
   border-radius: 12px; padding: 6px; box-shadow: 0 12px 36px rgba(0,0,0,0.14);
 }
 .dd-menu.right { left: auto; right: 0; }
+.dd-search { position: sticky; bottom: 0; width: 100%; box-sizing: border-box; margin-top: 5px; padding: 7px 9px; border: 1px solid var(--line); border-radius: 7px; background: var(--paper); color: var(--ink); outline: none; font-size: 13px; }
+.dd-search:focus { border-color: var(--accent); }
+.dd-empty { padding: 10px; color: var(--muted); font-size: 12px; }
 .dd-item { padding: 8px 10px; border-radius: 8px; cursor: pointer; }
 .dd-item:hover { background: var(--paper); }
 .dd-item.sel .dd-label { color: var(--accent); }

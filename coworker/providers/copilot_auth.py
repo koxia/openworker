@@ -2,16 +2,15 @@
 
 Instead of an API key, the user signs in with their GitHub account that has a Copilot
 subscription. The flow uses GitHub's OAuth Device Flow — the user visits a URL and
-enters a code, no loopback server needed — then we exchange the GitHub token for a
-short-lived Copilot API token.
+enters a code, no loopback server needed — then uses the GitHub OAuth token directly
+with the Copilot API.
 
 The pieces:
 
   - `sign_in()`         — async, explicit-action only: start device flow, poll for
-    the GitHub token, fetch the Copilot token, persist both.
-  - `CopilotTokenStore` — persistence + proactive refresh of the Copilot token
-    (the GitHub token is long-lived; the Copilot token expires in ~2 hours and is
-    refreshed on demand using the GitHub token).
+    the GitHub token, and persist it.
+  - `CopilotTokenStore` — persistence for the long-lived GitHub OAuth token used
+    directly by the Copilot API.
   - `verify()`          — the Test-button probe: one cheap authenticated request.
 
 Tokens land in the SecretStore profile `provider:github-copilot` — the same local-only
@@ -32,25 +31,19 @@ logger = logging.getLogger(__name__)
 
 DEVICE_CODE_URL = "https://github.com/login/device/code"
 GITHUB_TOKEN_URL = "https://github.com/login/oauth/access_token"
-# The public GitHub CLI client id (ships in the vendor's own tooling — not a secret).
-# This client id supports the device flow and has the scopes needed for Copilot access.
-CLIENT_ID = "178c6fc778ccc68e1d6a"
-# Scope needed for Copilot access. The `copilot` scope grants access to the Copilot API.
+# This public OAuth client id is also used by OpenCode. It supports the device
+# flow; the resulting GitHub OAuth token is accepted directly by the Copilot API.
+CLIENT_ID = "Ov23li8tweQw6odWQebz"
 SCOPE = "read:user"
 
-# -- Copilot token endpoint ----------------------------------------------------
-
-COPILOT_TOKEN_URL = "https://api.github.com/copilot_internal/v2/token"
 COPILOT_API_BASE = "https://api.githubcopilot.com"
 PROFILE = "provider:github-copilot"
-
-# Refresh this close to the Copilot token expiry (tokens last ~2 hours).
-REFRESH_MARGIN_SECONDS = 300
+API_VERSION = "2026-06-01"
 FLOW_TIMEOUT_SECONDS = 300
 # Device flow default poll interval (GitHub returns one; we fall back to this).
 DEFAULT_POLL_INTERVAL = 5
 
-# Editor headers the Copilot API requires (mimicking VS Code).
+# Headers expected by GitHub Copilot's third-party-agent API.
 EDITOR_VERSION = "vscode/1.91.0"
 EDITOR_PLUGIN_VERSION = "copilot-chat/0.19.0"
 COPILOT_INTEGRATION_ID = "vscode-chat"
@@ -124,50 +117,82 @@ def _copilot_headers(github_token: str) -> dict[str, str]:
     }
 
 
-def fetch_copilot_token(github_token: str, timeout: float = 30.0) -> dict[str, Any]:
-    """Exchange a GitHub OAuth token for a short-lived Copilot API token.
-
-    Returns the full token response: `{token, expires_in, ...}`.
-    Raises `CopilotAuthError` on failure.
-    """
-    data, status = _post_form(
-        COPILOT_TOKEN_URL,
-        headers=_copilot_headers(github_token),
-        timeout=timeout,
-    )
-    if status == 401 or status == 403:
-        raise CopilotAuthError(NO_COPILOT_ERROR)
-    if status == 404:
-        # GitHub returns 404 when the account doesn't have API access to Copilot.
-        # This happens with Free and Pro plans, which don't support third-party coding agents.
-        # Only Pro+, Business, and Enterprise plans have API access.
-        raise CopilotAuthError(
-            "Your GitHub Copilot plan doesn't support API access for third-party coding agents. "
-            "Copilot Free and Pro plans only work within GitHub's official interfaces (VS Code, GitHub.com). "
-            "To use Copilot models via API in OpenWorker, you need Copilot Pro+, Business, or Enterprise. "
-            "Visit https://github.com/features/copilot/plans to upgrade."
-        )
-    if status >= 400:
-        raise CopilotAuthError(
-            f"Failed to obtain Copilot token (HTTP {status})."
-        )
-    if not data or not data.get("token"):
-        raise CopilotAuthError(
-            "Copilot token response had no token — your GitHub account may not "
-            "have a Copilot subscription."
-        )
-    return data
-
-
 def api_headers(copilot_token: str) -> dict[str, str]:
-    """Headers for Copilot API calls (chat completions etc.)."""
+    """Headers for Copilot API calls (catalog and chat completions)."""
     return {
         "Authorization": f"Bearer {copilot_token}",
         "Editor-Version": EDITOR_VERSION,
         "Editor-Plugin-Version": EDITOR_PLUGIN_VERSION,
         "Copilot-Integration-Id": COPILOT_INTEGRATION_ID,
+        "X-GitHub-Api-Version": API_VERSION,
+        "Openai-Intent": "conversation-edits",
+        "User-Agent": "OpenWorker",
         "Content-Type": "application/json",
     }
+
+
+def fetch_copilot_models(github_token: str, timeout: float = 10.0) -> dict[str, dict[str, Any]]:
+    """Fetch models that are usable through Copilot's chat-completions API.
+
+    The static GitHub model list includes models that are only available through
+    `/responses` or `/v1/messages`; sending those through OpenAI's chat client
+    produces `unsupported_api_for_model`. Keep only enabled models that advertise
+    `/chat/completions` and tool calling.
+    """
+    import httpx
+
+    try:
+        resp = httpx.get(
+            COPILOT_API_BASE + "/models",
+            headers=api_headers(github_token),
+            timeout=timeout,
+        )
+    except Exception as exc:
+        raise CopilotAuthError(f"Couldn't fetch GitHub Copilot models ({exc.__class__.__name__}).") from exc
+    if resp.status_code >= 300:
+        raise CopilotAuthError(f"GitHub Copilot model catalog failed (HTTP {resp.status_code}).")
+
+    try:
+        raw = resp.json().get("data", [])
+    except Exception as exc:
+        raise CopilotAuthError("GitHub Copilot returned an invalid model catalog.") from exc
+
+    result: dict[str, dict[str, Any]] = {}
+    for item in raw:
+        if not isinstance(item, dict):
+            continue
+        supports = item.get("capabilities", {}).get("supports", {}) or {}
+        limits = item.get("capabilities", {}).get("limits", {}) or {}
+        endpoints = item.get("supported_endpoints", []) or []
+        if item.get("policy", {}).get("state") == "disabled" or item.get("model_picker_enabled") is False:
+            continue
+        if not any(
+            endpoint in endpoints
+            for endpoint in ("/responses", "/v1/responses", "/chat/completions", "/v1/chat/completions")
+        ) or supports.get("tool_calls") is not True:
+            continue
+        model_id = item.get("id")
+        if not model_id or not limits.get("max_prompt_tokens") or not limits.get("max_output_tokens"):
+            continue
+        result[model_id] = {
+            "label": item.get("name") or model_id,
+            "context_window": limits.get("max_context_window_tokens") or limits.get("max_prompt_tokens"),
+            "reasoning": bool(
+                supports.get("adaptive_thinking")
+                or supports.get("reasoning_effort")
+                or supports.get("max_thinking_budget")
+                or supports.get("min_thinking_budget")
+            ),
+            "reasoning_effort": supports.get("reasoning_effort") or [],
+            "endpoint": (
+                "responses"
+                if any(endpoint in endpoints for endpoint in ("/responses", "/v1/responses"))
+                else "chat"
+            ),
+        }
+    if not result:
+        raise CopilotAuthError("GitHub Copilot returned no chat-completions models available to this account.")
+    return result
 
 
 # -- Token persistence + refresh ------------------------------------------------
@@ -176,9 +201,9 @@ def api_headers(copilot_token: str) -> dict[str, str]:
 class CopilotTokenStore:
     """Token set in the `provider:github-copilot` SecretStore profile.
 
-    Stores both the long-lived GitHub OAuth token and the short-lived Copilot API
-    token. `access_token()` returns a live Copilot token, refreshing it from the
-    GitHub token when stale.
+    Stores the long-lived GitHub OAuth token. The Copilot API accepts this token
+    directly; unlike the old implementation, OpenWorker does not call the
+    undocumented `copilot_internal/v2/token` endpoint.
     """
 
     def __init__(self, secrets: Any) -> None:
@@ -216,15 +241,20 @@ class CopilotTokenStore:
         self._merge(patch)
 
     def save_copilot_token(self, token_data: dict[str, Any]) -> None:
-        """Persist the Copilot API token (short-lived)."""
-        patch: dict[str, Any] = {
-            "copilot_token": token_data.get("token", ""),
-            "copilot_token_saved_at": int(time.time()),
-        }
-        expires_in = token_data.get("expires_in")
-        if isinstance(expires_in, (int, float)):
-            patch["copilot_token_expires_at"] = int(time.time()) + int(expires_in)
-        self._merge(patch)
+        """Accept legacy cached token data during migration; it is never used."""
+        self._merge({"legacy_copilot_token": token_data.get("token", "")})
+
+    def save_models(self, models: dict[str, dict[str, Any]]) -> None:
+        """Persist the account-specific, chat-compatible model catalog."""
+        self._merge({
+            "supported_models": models,
+            "supported_models_saved_at": int(time.time()),
+            "supported_models_catalog_version": 2,
+        })
+
+    def models(self) -> dict[str, dict[str, Any]]:
+        data = self._data().get("supported_models")
+        return data if isinstance(data, dict) else {}
 
     def clear(self) -> bool:
         if self._secrets is None:
@@ -232,36 +262,15 @@ class CopilotTokenStore:
         return bool(self._secrets.delete(PROFILE))
 
     def access_token(self) -> str:
-        """Live Copilot API token — refreshing from the GitHub token when stale."""
-        data = self._data()
-        github_token = data.get("github_token") or ""
+        """Return the GitHub OAuth token used directly by the Copilot API."""
+        github_token = self._data().get("github_token") or ""
         if not github_token:
             raise CopilotSignInRequired(SIGNED_OUT_ERROR)
-
-        copilot_token = data.get("copilot_token") or ""
-        expires_at = data.get("copilot_token_expires_at") or 0
-        stale = not copilot_token or (
-            isinstance(expires_at, (int, float))
-            and expires_at - time.time() < REFRESH_MARGIN_SECONDS
-        )
-        if stale:
-            return self.refresh()
-        return copilot_token
+        return github_token
 
     def refresh(self) -> str:
-        """Re-fetch the Copilot token using the stored GitHub token."""
-        github_token = (self._data().get("github_token") or "")
-        if not github_token:
-            self.clear()
-            raise CopilotSignInRequired(EXPIRED_ERROR)
-        try:
-            token_data = fetch_copilot_token(github_token)
-        except CopilotAuthError:
-            # If the GitHub token was rejected, it may have been revoked.
-            self.clear()
-            raise CopilotSignInRequired(EXPIRED_ERROR)
-        self.save_copilot_token(token_data)
-        return token_data.get("token", "")
+        """Return the stored GitHub token; it is not exchanged for another token."""
+        return self.access_token()
 
 
 # -- GitHub user info -----------------------------------------------------------
@@ -414,21 +423,16 @@ async def sign_in(
     # Step 4: Fetch user info
     user_info = await asyncio.to_thread(fetch_github_user, github_token)
 
-    # Step 5: Get the Copilot token
-    try:
-        copilot_data = await asyncio.to_thread(fetch_copilot_token, github_token)
-    except CopilotAuthError as exc:
-        raise exc
-
-    # Step 6: Persist everything
+    # Step 5: Persist the GitHub token. The Copilot API accepts it directly;
+    # do not call the undocumented token-exchange endpoint, which returns 404
+    # for accounts that work in supported third-party clients.
     store = CopilotTokenStore(secrets)
     store.save_github_token(
         github_token,
         login=user_info.get("login", ""),
         github_id=user_info.get("id", ""),
     )
-    store.save_copilot_token(copilot_data)
-
+    store.save_models(fetch_copilot_models(github_token))
     return {
         "ok": True,
         "account": store.account_label(),

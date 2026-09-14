@@ -672,6 +672,7 @@ class SessionManager:
             model=model,
             mode=mode,
             provider=self.provider,
+            model_settings=self._model_settings_for(model),
             # Memory off (§4.3) = stop LEARNING, not amnesia: saved facts still inject
             # and stay usable, only the write tools go. Read at build time; running
             # sessions finish under the mode they started with.
@@ -3027,6 +3028,7 @@ class SessionManager:
                     row["authorizing"] = self._codex_authorizing
                     row["last_error"] = self._codex_error
                 if d.name == "github-copilot":
+                    row["account"] = profile.get("github_login") or profile.get("github_id")
                     row["authorizing"] = self._copilot_authorizing
                     row["last_error"] = self._copilot_error
                     row["user_code"] = self._copilot_user_code
@@ -3107,6 +3109,25 @@ class SessionManager:
         topped up with the compat-vendor extras the matrix doesn't vouch for."""
         if name == "ollama":
             return [m.split(":", 1)[-1] for m in self._ollama_models()]
+        if name == "github-copilot":
+            from ..providers import copilot_auth
+            from ..providers.copilot_auth import CopilotTokenStore
+
+            store = CopilotTokenStore(self.secrets)
+            models = store.models()
+            profile = self.secrets.get("provider:github-copilot") or {}
+            if store.signed_in() and (
+                profile.get("supported_models_catalog_version") != 2
+                or not models
+                or any("endpoint" not in metadata for metadata in models.values())
+            ):
+                try:
+                    models = copilot_auth.fetch_copilot_models(store.access_token())
+                    store.save_models(models)
+                except Exception:
+                    models = {}
+            if models:
+                return list(models)
         from ..providers.matrix import models_for_provider
 
         return list(
@@ -3255,11 +3276,17 @@ class SessionManager:
         finally:
             self._copilot_authorizing = False
         self._refresh_provider("github-copilot")
-        # Same convenience as codex: surface the recommended model right away.
-        added = "github-copilot:gpt-5.5"
-        self.add_model(added)
-        if not self._provider_configured(self._model_provider(self.model)):
-            self.set_default_model(added)
+        # Surface the first account-supported chat model right away. Never seed a
+        # static matrix model here: Copilot's live catalog is authoritative.
+        models = copilot_auth.CopilotTokenStore(self.secrets).models()
+        if models:
+            added = f"github-copilot:{next(iter(models))}"
+            self.add_model(added)
+            if not self._provider_configured(self._model_provider(self.model)) or (
+                self.model.startswith("github-copilot:")
+                and self.model.split(":", 1)[1] not in models
+            ):
+                self.set_default_model(added)
         return result
 
     def copilot_status(self) -> dict[str, Any]:
@@ -3358,6 +3385,40 @@ class SessionManager:
             json.dumps(self._prefs, indent=2), encoding="utf-8"
         )
 
+    def copilot_thinking(self) -> bool:
+        return bool(self._prefs.get("copilot_thinking", False))
+
+    def copilot_variant(self) -> str:
+        return str(self._prefs.get("copilot_variant") or "default")
+
+    def set_copilot_thinking(self, enabled: bool) -> dict[str, Any]:
+        self._prefs["copilot_thinking"] = bool(enabled)
+        if not enabled:
+            self._prefs["copilot_variant"] = "default"
+        self._save_prefs()
+        return {"ok": True, **self.get_settings()}
+
+    def set_copilot_variant(self, variant: str) -> dict[str, Any]:
+        self._prefs["copilot_variant"] = (variant or "default").strip().lower()
+        self._prefs["copilot_thinking"] = self._prefs["copilot_variant"] not in ("default", "none")
+        self._save_prefs()
+        return {"ok": True, **self.get_settings()}
+
+    def _model_settings_for(self, model: str) -> dict[str, Any]:
+        from ..providers.copilot_auth import CopilotTokenStore
+
+        if not model.startswith("github-copilot:"):
+            return {}
+        model_id = model.split(":", 1)[1]
+        metadata = CopilotTokenStore(self.secrets).models().get(model_id) or {}
+        efforts = metadata.get("reasoning_effort") or []
+        variant = self.copilot_variant()
+        if variant in ("default", "none"):
+            return {}
+        if variant not in efforts:
+            return {}
+        return {"reasoning_effort": variant}
+
     # -- direct-message routing -------------------------------------------------
     def dm_session(self) -> Optional[str]:
         """The session a DM to the bot is routed to (user-designated). None → DMs are parked."""
@@ -3427,11 +3488,21 @@ class SessionManager:
         provider's matrix models appear. The active default is always kept selectable.
         """
         from ..providers.matrix import MATRIX
+        from ..providers.copilot_auth import CopilotTokenStore
 
+        copilot = CopilotTokenStore(self.secrets).models()
+        dynamic = {f"github-copilot:{model_id}" for model_id in copilot}
         user = self._prefs.get("models")
         user = user if isinstance(user, list) else []
         hidden = set(self._prefs.get("hidden_models") or [])
-        models = [m for m in [*MATRIX, *user] if m not in hidden]
+        models = [m for m in [*MATRIX, *dynamic, *user] if m not in hidden]
+        if copilot:
+            models = [
+                m
+                for m in models
+                if not m.startswith("github-copilot:")
+                or m.split(":", 1)[1] in copilot
+            ]
         return list(dict.fromkeys([self.model, *models]))
 
     def add_model(self, model: str) -> dict[str, Any]:
@@ -3489,10 +3560,45 @@ class SessionManager:
                 return self._ollama_alive()
             return self._provider_configured(provider)
 
+        from ..providers.matrix import model_context_windows, model_labels
+        from ..providers import copilot_auth
+        from ..providers.copilot_auth import CopilotTokenStore
+
+        copilot_store = CopilotTokenStore(self.secrets)
+        copilot_models = copilot_store.models()
+        copilot_profile = self.secrets.get("provider:github-copilot") or {}
+        if copilot_store.signed_in() and (
+            copilot_profile.get("supported_models_catalog_version") != 2
+            or not copilot_models
+            or any("endpoint" not in metadata for metadata in copilot_models.values())
+        ):
+            try:
+                copilot_models = copilot_auth.fetch_copilot_models(copilot_store.access_token())
+                copilot_store.save_models(copilot_models)
+            except Exception:
+                copilot_models = {}
+        if (
+            copilot_models
+            and self.model.startswith("github-copilot:")
+            and self.model.split(":", 1)[1] not in copilot_models
+        ):
+            self.model = f"github-copilot:{next(iter(copilot_models))}"
+            self._prefs["default_model"] = self.model
+            self._save_prefs()
         selectable = [m for m in self._curated_models() if _selectable(m)]
         if self.model not in selectable:
             selectable.insert(0, self.model)
-        from ..providers.matrix import model_context_windows, model_labels
+        labels = model_labels()
+        context_windows = model_context_windows()
+        model_thinking = {}
+        model_variants = {}
+        for model_id, metadata in copilot_models.items():
+            full_id = f"github-copilot:{model_id}"
+            labels[full_id] = f"{metadata.get('label', model_id)} · GitHub Copilot"
+            if metadata.get("context_window"):
+                context_windows[full_id] = metadata["context_window"]
+            model_thinking[full_id] = bool(metadata.get("reasoning"))
+            model_variants[full_id] = list(metadata.get("reasoning_effort") or [])
 
         return {
             "provider": "openai",
@@ -3500,10 +3606,13 @@ class SessionManager:
             "models": selectable,
             # Curated-matrix display names ({full id → "GLM-5.2 · via Together"}) so every
             # picker shows human labels; custom models absent here render their raw id.
-            "model_labels": model_labels(),
+            "model_labels": labels,
             # {full id → context window in tokens}, verified matrix entries only —
             # drives the composer's context-fill meter (absent id → meter hides).
-            "model_context_windows": model_context_windows(),
+            "model_context_windows": context_windows,
+            "model_thinking": model_thinking,
+            "model_variants": model_variants,
+            "copilot_variant": self.copilot_variant(),
             "has_key": env_key or stored,
             # Provider-agnostic "can this default model actually run?" — true when the default
             # model's provider is configured (any provider, not just OpenAI). Drives the GUI's
@@ -3516,6 +3625,7 @@ class SessionManager:
             "nav_layout": self._nav_layout(),
             "sessions_peek": self.sessions_peek(),
             "context_bar": self.context_bar(),
+            "copilot_thinking": self.copilot_thinking(),
             # Auto-Approve feature flag + its shadow-eval sibling (spec §1.5). Drive the
             # Settings toggles and gate the composer's Auto-Approve mode entry.
             "auto_approve": self.auto_approve(),
@@ -4535,6 +4645,7 @@ class SessionManager:
             mode=Mode.INTERACTIVE,
             approver=self._scheduled_approver(task, session_id),
             provider=self.provider,
+            model_settings=self._model_settings_for(task.model or self.model),
             memory_store=self.memory_store,
             memory_workspace=self._memory_key_for(None, task.workspace),
             memory_off=not self.memory_settings.enabled,

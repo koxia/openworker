@@ -1967,6 +1967,14 @@ def create_app(manager: SessionManager) -> FastAPI:
     def settings_set_default_model(body: dict) -> dict[str, Any]:
         return manager.set_default_model((body or {}).get("model", ""))
 
+    @app.post("/v1/settings/copilot-thinking")
+    def settings_set_copilot_thinking(body: dict) -> dict[str, Any]:
+        return manager.set_copilot_thinking(bool((body or {}).get("value")))
+
+    @app.post("/v1/settings/copilot-variant")
+    def settings_set_copilot_variant(body: dict) -> dict[str, Any]:
+        return manager.set_copilot_variant((body or {}).get("value", "default"))
+
     @app.post("/v1/settings/models/add")
     def settings_models_add(body: dict) -> dict[str, Any]:
         return manager.add_model((body or {}).get("model", ""))

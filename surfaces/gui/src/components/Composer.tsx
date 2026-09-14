@@ -82,6 +82,12 @@ interface Props {
   model: string;
   models?: string[];
   modelLabels?: Record<string, string>; // curated display names (raw id when absent)
+  modelThinking?: Record<string, boolean>;
+  modelVariants?: Record<string, string[]>;
+  copilotVariant?: string;
+  onCopilotVariantChange?: (value: string) => void;
+  copilotThinking?: boolean;
+  onCopilotThinkingChange?: (value: boolean) => void;
   // The model is FIXED once the session has history (§17): the picker renders ONLY on a fresh
   // session; after the first turn the fact lives in the topbar subtitle (§22) — no
   // interactive-then-disabled control.
@@ -718,7 +724,30 @@ export function Composer(props: Props) {
               <span className="model-warn-ico" aria-hidden>⚠</span>
             </button>
           ) : modelsLoaded ? (
-            <Dropdown value={props.model} options={modelOptions} onChange={props.onModelChange} align="right" />
+            <>
+            <Dropdown
+              value={props.model}
+              options={modelOptions}
+              onChange={props.onModelChange}
+              align="right"
+              searchable
+              searchPlaceholder="Search models (use * or ?)…"
+            />
+            {props.modelThinking?.[props.model] && props.onCopilotVariantChange && (
+              <Dropdown
+                value={props.copilotThinking ? props.copilotVariant || "default" : "default"}
+                options={[
+                  { value: "default", label: "Thinking off" },
+                  ...(props.modelVariants?.[props.model] || []).map((variant) => ({
+                    value: variant,
+                    label: `Thinking: ${variant}`,
+                  })),
+                ]}
+                onChange={props.onCopilotVariantChange}
+                align="right"
+              />
+            )}
+            </>
           ) : (
             <button
               className="pill chip text-faint cursor-default"

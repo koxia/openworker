@@ -25,6 +25,7 @@ from .copilot_auth import (
     api_headers,
 )
 from .openai_provider import OpenAIProvider
+from .openai_responses import OpenAIResponsesProvider
 
 
 def _status_code(exc: Exception) -> Optional[int]:
@@ -50,6 +51,8 @@ class CopilotProvider(OpenAIProvider):
         )
         self._store = CopilotTokenStore(secrets)
         self._client_token: Optional[str] = None
+        self._responses_provider: Optional[OpenAIResponsesProvider] = None
+        self._responses_token: Optional[str] = None
         self._injected = client is not None
 
     def _ensure_client(self) -> Any:
@@ -69,18 +72,37 @@ class CopilotProvider(OpenAIProvider):
             self._client_token = token
         return self._client
 
+    def _responses(self, model: str) -> Optional[OpenAIResponsesProvider]:
+        model_id = model.split(":", 1)[-1]
+        metadata = self._store.models().get(model_id) or {}
+        if metadata.get("endpoint") != "responses":
+            return None
+        token = self._store.access_token()
+        if self._responses_provider is None or token != self._responses_token:
+            from openai import OpenAI
+
+            client = OpenAI(
+                api_key=token,
+                base_url=COPILOT_API_BASE,
+                default_headers=api_headers(token),
+            )
+            self._responses_provider = OpenAIResponsesProvider(client=client)
+            self._responses_token = token
+        return self._responses_provider
+
     def _create(self, client: Any, kwargs: dict[str, Any]) -> Any:
         try:
             return super()._create(client, kwargs)
         except Exception as exc:
             status = _status_code(exc)
             if status == 401 and not self._injected:
-                # The Copilot token died mid-flight: force one refresh and retry.
-                # A rejected GitHub token raises CopilotSignInRequired.
-                self._store.refresh()
-                self._client = None
-                self._client_token = None
-                return super()._create(self._ensure_client(), kwargs)
+                # The Copilot API uses the GitHub OAuth token directly. A 401
+                # means that token was revoked or is otherwise unusable; retrying
+                # the same token only creates a loop, so require an explicit sign-in.
+                self._store.clear()
+                raise CopilotSignInRequired(
+                    "GitHub Copilot session expired — sign in again in Settings ▸ Models."
+                ) from exc
             raise
 
     def complete(
@@ -91,11 +113,24 @@ class CopilotProvider(OpenAIProvider):
         tools: Optional[list[dict[str, Any]]] = None,
         **settings: Any,
     ) -> AssistantTurn:
+        responses = self._responses(model)
+        if responses is not None:
+            return responses.complete(
+                model=model, messages=messages, tools=tools, **settings
+            )
         # Ensure client is built with current token before delegating.
         self._ensure_client()
-        return super().complete(
-            model=model, messages=messages, tools=tools, **settings
-        )
+        try:
+            return super().complete(
+                model=model, messages=messages, tools=tools, **settings
+            )
+        except Exception as exc:
+            if _status_code(exc) == 401 and not self._injected:
+                self._store.clear()
+                raise CopilotSignInRequired(
+                    "GitHub Copilot session expired — sign in again in Settings ▸ Models."
+                ) from exc
+            raise
 
     def stream(
         self,
@@ -105,6 +140,11 @@ class CopilotProvider(OpenAIProvider):
         tools: Optional[list[dict[str, Any]]] = None,
         **settings: Any,
     ):
+        responses = self._responses(model)
+        if responses is not None:
+            return responses.stream(
+                model=model, messages=messages, tools=tools, **settings
+            )
         self._ensure_client()
         return super().stream(
             model=model, messages=messages, tools=tools, **settings

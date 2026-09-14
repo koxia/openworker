@@ -57,6 +57,7 @@ _SETTINGS_WHITELIST = {
     "parallel_tool_calls",
 }
 
+
 # "Unsupported parameter: 'temperature' is not supported with this model." — reasoning
 # models reject sampling params; non-reasoning models reject `reasoning`/`include`. The
 # server names exactly one offender per error, so each retry drops exactly that.
@@ -364,7 +365,14 @@ class OpenAIResponsesProvider(ProviderClient):
             **{k: v for k, v in settings.items() if k in _SETTINGS_WHITELIST},
         }
         if self._reasoning_summary:
-            kwargs["reasoning"] = {"summary": "auto"}
+            kwargs["reasoning"] = {
+                "summary": "auto",
+                **(
+                    {"effort": settings["reasoning_effort"]}
+                    if settings.get("reasoning_effort")
+                    else {}
+                ),
+            }
         if instructions:
             kwargs["instructions"] = instructions
         if tools:
